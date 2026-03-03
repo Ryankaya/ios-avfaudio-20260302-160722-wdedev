@@ -353,7 +353,7 @@ struct ContentView: View {
             }
             .background(
                 LinearGradient(
-                    colors: [Color(red: 0.94, green: 0.97, blue: 1.0), Color(red: 0.98, green: 0.99, blue: 1.0)],
+                    colors: [Color(uiColor: .systemGroupedBackground), Color(uiColor: .secondarySystemGroupedBackground)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -405,7 +405,7 @@ struct ContentView: View {
                 .frame(minHeight: 160)
                 .scrollContentBackground(.hidden)
                 .padding(8)
-                .background(Color.white)
+                .background(Color(uiColor: .secondarySystemBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 if viewModel.transcript.isEmpty {
@@ -478,7 +478,7 @@ struct ContentView: View {
                 }
                 .frame(minHeight: 80, maxHeight: 140)
                 .padding(10)
-                .background(Color.white)
+                .background(Color(uiColor: .secondarySystemBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 Button("Speak Image Details") {
@@ -540,17 +540,19 @@ struct ContentView: View {
 }
 
 private struct CardStyle: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
     func body(content: Content) -> some View {
         content
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(red: 0.99, green: 1.0, blue: 1.0))
+            .background(Color(uiColor: .systemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                    .stroke(Color(uiColor: .separator).opacity(0.35), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 2)
+            .shadow(color: colorScheme == .dark ? Color.black.opacity(0.35) : Color.black.opacity(0.08), radius: 8, x: 0, y: 3)
     }
 }
 
