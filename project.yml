@@ -24,13 +24,8 @@ targets:
       properties:
         CFBundleDisplayName: AVFAudio Speaker
         UIApplicationSupportsIndirectInputEvents: YES
+        NSMicrophoneUsageDescription: This app uses the microphone to convert your voice to text.
+        NSSpeechRecognitionUsageDescription: This app uses speech recognition to transcribe your voice.
         UILaunchScreen: {}
-        UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: NO
-          UISceneConfigurations:
-            UIWindowSceneSessionRoleApplication:
-              - UISceneConfigurationName: Default Configuration
-                UISceneDelegateClassName: ""
-                UISceneStoryboardFile: ""
     scheme:
       testTargets: []

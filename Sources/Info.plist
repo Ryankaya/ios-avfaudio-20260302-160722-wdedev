@@ -20,25 +20,10 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<key>UIApplicationSceneManifest</key>
-	<dict>
-		<key>UIApplicationSupportsMultipleScenes</key>
-		<false/>
-		<key>UISceneConfigurations</key>
-		<dict>
-			<key>UIWindowSceneSessionRoleApplication</key>
-			<array>
-				<dict>
-					<key>UISceneConfigurationName</key>
-					<string>Default Configuration</string>
-					<key>UISceneDelegateClassName</key>
-					<string></string>
-					<key>UISceneStoryboardFile</key>
-					<string></string>
-				</dict>
-			</array>
-		</dict>
-	</dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app uses the microphone to convert your voice to text.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>This app uses speech recognition to transcribe your voice.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchScreen</key>
