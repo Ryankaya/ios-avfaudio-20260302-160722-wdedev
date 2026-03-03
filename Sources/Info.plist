@@ -20,8 +20,12 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>NSCameraUsageDescription</key>
+	<string>This app uses the camera to capture photos for spoken details.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app uses the microphone to convert your voice to text.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app uses your photo library to analyze and read image details.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>This app uses speech recognition to transcribe your voice.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

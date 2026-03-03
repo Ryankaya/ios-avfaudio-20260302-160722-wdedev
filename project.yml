@@ -26,6 +26,8 @@ targets:
         UIApplicationSupportsIndirectInputEvents: YES
         NSMicrophoneUsageDescription: This app uses the microphone to convert your voice to text.
         NSSpeechRecognitionUsageDescription: This app uses speech recognition to transcribe your voice.
+        NSCameraUsageDescription: This app uses the camera to capture photos for spoken details.
+        NSPhotoLibraryUsageDescription: This app uses your photo library to analyze and read image details.
         UILaunchScreen: {}
     scheme:
       testTargets: []
