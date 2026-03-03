@@ -26,15 +26,14 @@ final class SpeechStudioViewModel: NSObject, ObservableObject, @preconcurrency A
 
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
+    private var recognitionSessionID = UUID()
     private var baseTranscriptForSession = ""
     private var latestPartialTranscript = ""
 
     override init() {
         super.init()
         synthesizer.delegate = self
-
-        let stored = UserDefaults.standard.string(forKey: transcriptKey) ?? ""
-        transcript = stored
+        transcript = UserDefaults.standard.string(forKey: transcriptKey) ?? ""
     }
 
     func updateTranscript(_ value: String) {
@@ -44,13 +43,14 @@ final class SpeechStudioViewModel: NSObject, ObservableObject, @preconcurrency A
 
     func clearTranscript() {
         transcript = ""
+        liveTranscript = ""
         persistTranscript()
         statusMessage = "Transcript cleared."
     }
 
     func toggleListening() {
         if isListening {
-            stopListening(reason: "Stopped listening.")
+            stopListening(reason: "Listening stopped. Transcript saved.")
         } else {
             Task {
                 await startListening()
@@ -63,7 +63,7 @@ final class SpeechStudioViewModel: NSObject, ObservableObject, @preconcurrency A
     }
 
     func speakImageDetails() {
-        speak(trimmed(imageDetails), emptyMessage: "Capture a photo first, then analyze it.")
+        speak(trimmed(imageDetails), emptyMessage: "Capture or choose a photo first.")
     }
 
     func stopSpeaking() {
@@ -85,19 +85,25 @@ final class SpeechStudioViewModel: NSObject, ObservableObject, @preconcurrency A
                 imageDetails = details
                 statusMessage = "Image details ready."
             } catch {
-                imageDetails = ""
-                statusMessage = "Image analysis failed: \(error.localizedDescription)"
+                imageDetails = fallbackImageDescription(for: image)
+                statusMessage = "OCR found limited text. Using fallback description."
             }
-
             isAnalyzingImage = false
         }
     }
 
     private func speak(_ content: String, emptyMessage: String) {
-        stopListening(reason: "Stopped listening.")
+        stopListening(reason: "Listening stopped. Transcript saved.")
 
         guard !content.isEmpty else {
             statusMessage = emptyMessage
+            return
+        }
+
+        do {
+            try configureAudioSessionForPlayback()
+        } catch {
+            statusMessage = "Audio output failed: \(error.localizedDescription)"
             return
         }
 
@@ -139,26 +145,34 @@ final class SpeechStudioViewModel: NSObject, ObservableObject, @preconcurrency A
         }
 
         do {
+            recognitionSessionID = UUID()
             baseTranscriptForSession = trimmed(transcript)
             latestPartialTranscript = ""
             liveTranscript = ""
 
-            try configureAudioSession()
-            try beginRecognition(with: recognizer)
+            try configureAudioSessionForRecording()
+            try beginRecognition(with: recognizer, sessionID: recognitionSessionID)
+
             isListening = true
             statusMessage = "Listening..."
         } catch {
-            finalizeListening(status: "Could not start listening: \(error.localizedDescription)")
+            finalizeListening(reason: "Could not start listening: \(error.localizedDescription)", forcePersistCurrentText: true)
         }
     }
 
-    private func configureAudioSession() throws {
+    private func configureAudioSessionForRecording() throws {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
+        try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetooth, .duckOthers])
         try session.setActive(true, options: .notifyOthersOnDeactivation)
     }
 
-    private func beginRecognition(with recognizer: SFSpeechRecognizer) throws {
+    private func configureAudioSessionForPlayback() throws {
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playback, mode: .default, options: [.duckOthers])
+        try session.setActive(true, options: .notifyOthersOnDeactivation)
+    }
+
+    private func beginRecognition(with recognizer: SFSpeechRecognizer, sessionID: UUID) throws {
         recognitionTask?.cancel()
         recognitionTask = nil
 
@@ -180,26 +194,39 @@ final class SpeechStudioViewModel: NSObject, ObservableObject, @preconcurrency A
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
                 guard let self else { return }
+                guard self.recognitionSessionID == sessionID else { return }
 
                 if let result {
-                    self.latestPartialTranscript = result.bestTranscription.formattedString
-                    self.liveTranscript = self.latestPartialTranscript
-                    self.transcript = self.combinedTranscript(base: self.baseTranscriptForSession, newSegment: self.latestPartialTranscript)
+                    let partial = self.trimmed(result.bestTranscription.formattedString)
+                    self.latestPartialTranscript = partial
+                    self.liveTranscript = partial
+
+                    let combined = self.combinedTranscript(base: self.baseTranscriptForSession, newSegment: partial)
+                    if combined.count >= self.transcript.count {
+                        self.transcript = combined
+                        self.persistTranscript()
+                    }
 
                     if result.isFinal {
-                        self.finalizeListening(status: "Transcription saved.")
+                        self.finalizeListening(reason: "Transcription saved.", forcePersistCurrentText: true)
                         return
                     }
                 }
 
-                if let error {
-                    self.finalizeListening(status: "Listening stopped: \(error.localizedDescription)")
+                if error != nil, self.isListening {
+                    self.finalizeListening(reason: "Listening stopped. Transcript saved.", forcePersistCurrentText: true)
                 }
             }
         }
     }
 
-    private func finalizeListening(status: String) {
+    func stopListening(reason: String) {
+        finalizeListening(reason: reason, forcePersistCurrentText: true)
+    }
+
+    private func finalizeListening(reason: String, forcePersistCurrentText: Bool) {
+        recognitionSessionID = UUID()
+
         if audioEngine.isRunning {
             audioEngine.stop()
         }
@@ -211,26 +238,31 @@ final class SpeechStudioViewModel: NSObject, ObservableObject, @preconcurrency A
         recognitionRequest = nil
         recognitionTask = nil
 
-        let session = AVAudioSession.sharedInstance()
-        try? session.setActive(false, options: .notifyOthersOnDeactivation)
-
-        transcript = combinedTranscript(base: baseTranscriptForSession, newSegment: latestPartialTranscript)
-        persistTranscript()
+        let combined = combinedTranscript(base: baseTranscriptForSession, newSegment: latestPartialTranscript)
+        if forcePersistCurrentText {
+            if combined.count >= transcript.count {
+                transcript = combined
+            }
+            persistTranscript()
+        }
 
         liveTranscript = ""
-        isListening = false
-        statusMessage = status
-    }
+        latestPartialTranscript = ""
+        baseTranscriptForSession = transcript
 
-    func stopListening(reason: String) {
-        guard isListening || audioEngine.isRunning || recognitionTask != nil else { return }
-        finalizeListening(status: reason)
+        isListening = false
+        statusMessage = reason
+
+        let session = AVAudioSession.sharedInstance()
+        try? session.setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in
             self.isSpeaking = false
             self.statusMessage = "Finished speaking."
+            let session = AVAudioSession.sharedInstance()
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
         }
     }
 
@@ -238,6 +270,8 @@ final class SpeechStudioViewModel: NSObject, ObservableObject, @preconcurrency A
         Task { @MainActor in
             self.isSpeaking = false
             self.statusMessage = "Cancelled speaking."
+            let session = AVAudioSession.sharedInstance()
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
         }
     }
 
@@ -284,11 +318,11 @@ final class SpeechStudioViewModel: NSObject, ObservableObject, @preconcurrency A
                     .filter { !$0.isEmpty }
 
                 if lines.isEmpty {
-                    continuation.resume(returning: "No readable text detected in the image.")
+                    continuation.resume(returning: self.fallbackImageDescription(for: image))
                     return
                 }
 
-                let details = lines.prefix(12).joined(separator: "\n")
+                let details = lines.prefix(14).joined(separator: "\n")
                 continuation.resume(returning: details)
             }
 
@@ -296,12 +330,19 @@ final class SpeechStudioViewModel: NSObject, ObservableObject, @preconcurrency A
             request.usesLanguageCorrection = true
 
             do {
-                let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+                let orientation = CGImagePropertyOrientation(image.imageOrientation)
+                let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
                 try handler.perform([request])
             } catch {
                 continuation.resume(throwing: error)
             }
         }
+    }
+
+    private func fallbackImageDescription(for image: UIImage) -> String {
+        let width = Int(image.size.width)
+        let height = Int(image.size.height)
+        return "Image captured. Size: \(width) by \(height) pixels. No readable text detected."
     }
 
     private func persistTranscript() {
@@ -409,7 +450,7 @@ struct ContentView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 if viewModel.transcript.isEmpty {
-                    Text("Tap Listen and start speaking. Your text will persist here.")
+                    Text("Tap Listen and speak. Stopped sessions save text automatically.")
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 16)
@@ -431,7 +472,7 @@ struct ContentView: View {
             Text("Voice Capture")
                 .font(.headline)
 
-            Text("Tap Listen, speak clearly, then stop. Final text stays in Transcript.")
+            Text("Tap Listen, speak clearly, then tap Stop Listening. Transcript is kept.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
@@ -486,8 +527,9 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.indigo)
+                .disabled(viewModel.isAnalyzingImage)
             } else {
-                Text("Add a photo to extract text details and listen to them.")
+                Text("Add a photo to extract details and read them aloud.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -598,6 +640,22 @@ struct ImagePicker: UIViewControllerRepresentable {
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
             parent.dismiss()
+        }
+    }
+}
+
+private extension CGImagePropertyOrientation {
+    init(_ orientation: UIImage.Orientation) {
+        switch orientation {
+        case .up: self = .up
+        case .down: self = .down
+        case .left: self = .left
+        case .right: self = .right
+        case .upMirrored: self = .upMirrored
+        case .downMirrored: self = .downMirrored
+        case .leftMirrored: self = .leftMirrored
+        case .rightMirrored: self = .rightMirrored
+        @unknown default: self = .up
         }
     }
 }
